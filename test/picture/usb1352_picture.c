@@ -91,6 +91,11 @@ void* rx_thread(void* dev)
 
 	FILE* img;
 	uint16_t count;
+	int size;
+
+	long long int elapsed_time_int;
+	double elapsed_time_double;
+	double data_rate;
 
 	while (1)
 	{
@@ -102,6 +107,7 @@ void* rx_thread(void* dev)
 			img = fopen("wakgood_master.jpg", "wb");
 
 			count = 0;
+			size = 0;
 			clock_gettime(CLOCK_REALTIME, &start);
 		}
 		else if (frame.type == 3)
@@ -116,13 +122,25 @@ void* rx_thread(void* dev)
 			result.tv_nsec = end.tv_nsec - start.tv_nsec;
 
 			count += 1;
+			size += frame.length;
 			printf("recv count: %d\n", count);
 			printf("%ldsec %ldnsec\n", result.tv_sec, result.tv_nsec);
+			printf("size: %d\n", size * 8);
+
+			elapsed_time_int = (long long int)result.tv_sec * 1000000000L + result.tv_nsec;
+			elapsed_time_double = ((double)elapsed_time_int) / 1000000000L;
+			elapsed_time_double -= 1;
+
+			printf("elapsed sec: %.2lf (int: %ld\n", elapsed_time_double, elapsed_time_int);
+			data_rate = size * 8 / elapsed_time_double;
+			printf("BPS: %.2lf\n", data_rate);
+
 		}
 		else if (frame.type == 2)
 		{
-			printf("cur seq: %d\n", frame.seq);
+//			printf("cur seq: %d\n", frame.seq);
 			count += 1;
+			size += frame.length;
 			fwrite(frame.payload, 1, frame.length, img);
 		}
 
