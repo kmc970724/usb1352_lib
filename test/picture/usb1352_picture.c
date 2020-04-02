@@ -157,6 +157,8 @@ int main(void)
 
 	my_dev = usb1352_init();
 
+	printf("init complete\n");
+
 	pthread_create(&tx_thread_t, NULL, tx_thread, my_dev);
 	pthread_create(&rx_thread_t, NULL, rx_thread, my_dev);
 

@@ -22,10 +22,7 @@ void usb1352_spi_init(usb1352_dev* p_dev)
 
 	while (1)
 	{
-		if (!(usb1352_spi_rw(p_dev, &tx_frame, &rx_frame)))
-		{
-			continue;
-		}
+		usb1352_spi_rw(p_dev, &tx_frame, &rx_frame);
 
 		if (rx_frame.sync1 == SPI_SYNC_BYTE1 && rx_frame.sync2 == SPI_SYNC_BYTE2)
 		{
@@ -37,10 +34,9 @@ void usb1352_spi_init(usb1352_dev* p_dev)
 	pthread_cond_init(&p_dev->usb1352_rx_cond, NULL);
 
 	pthread_create(&intr_thread_t, NULL, usb1352_spi_intr_thread, p_dev);
-//	pthread_create(&spi_thread_t, NULL, usb1352_spi_thread, p_dev);
 }
 
-uint8_t usb1352_spi_rw(usb1352_dev* p_dev, sub1ghz_spi_frame* tx_frame, sub1ghz_spi_frame* rx_frame)
+void usb1352_spi_rw(usb1352_dev* p_dev, sub1ghz_spi_frame* tx_frame, sub1ghz_spi_frame* rx_frame)
 {
 	uint16_t bytes_to_transceive;
 	uint16_t bytes_transceived;
@@ -54,15 +50,6 @@ uint8_t usb1352_spi_rw(usb1352_dev* p_dev, sub1ghz_spi_frame* tx_frame, sub1ghz_
 	pthread_mutex_lock(&(p_dev->usb1352_spi_mutex));
 	ft_status = FT4222_SPIMaster_SingleReadWrite(p_dev->ft_handle, (uint8_t*)rx_frame, (uint8_t*)tx_frame, bytes_to_transceive, &bytes_transceived, TRUE);
 	pthread_mutex_unlock(&(p_dev->usb1352_spi_mutex));
-
-	if (bytes_to_transceive == bytes_transceived && ft_status == FT4222_OK)
-	{
-		return TRUE;
-	}
-	else
-	{
-		return FALSE;
-	}
 }
 
 void usb1352_spi_data_transfer(usb1352_dev* p_dev, uint8_t size, void* payload)
@@ -75,24 +62,7 @@ void usb1352_spi_data_transfer(usb1352_dev* p_dev, uint8_t size, void* payload)
 	tx_frame.length = size;
 	memcpy(tx_frame.payload, payload, size);
 	
-//	usb1352_queue_insert(p_dev->usb1352_tx_queue, &tx_frame);
-
-	while (1)
-	{
-		if (usb1352_spi_rw(p_dev, &tx_frame, &rx_frame) == TRUE)
-		{
-			break;
-		}
-		else
-		{
-			usleep(1000);
-		}
-	}
-
-//	if (!(usb1352_spi_rw(p_dev, &tx_frame, &rx_frame)))
-//	{
-//		return;
-//	}
+	usb1352_spi_rw(p_dev, &tx_frame, &rx_frame);
 
 	if (rx_frame.sync1 == SPI_SYNC_BYTE1 && rx_frame.sync2 == SPI_SYNC_BYTE2)
 	{
@@ -109,30 +79,24 @@ void usb1352_spi_data_transfer(usb1352_dev* p_dev, uint8_t size, void* payload)
 			}
 		}
 
-		if (rx_frame.rfc.queue_size < 3)
+		while (rx_frame.rfc.queue_size < 3)
 		{
-			while (rx_frame.rfc.queue_size < 3)
-			{
-				memset(&tx_frame, 0, sizeof(sub1ghz_spi_frame));
-				if (!(usb1352_spi_rw(p_dev, &tx_frame, &rx_frame) == TRUE))
-				{
-					continue;
-				}
+			memset(&tx_frame, 0, sizeof(sub1ghz_spi_frame));
+			usb1352_spi_rw(p_dev, &tx_frame, &rx_frame);
 
-				if (rx_frame.fc.frameType == SPI_INTERRUPT)
+			if (rx_frame.fc.frameType == SPI_INTERRUPT)
+			{
+				if (rx_frame.fc.cmdType == SPI_INTR_NORMAL)
 				{
-					if (rx_frame.fc.cmdType == SPI_INTR_NORMAL)
+					if (rx_frame.fc.cmdSubType == SPI_INTR_NORMAL_DATA)
 					{
-						if (rx_frame.fc.cmdSubType == SPI_INTR_NORMAL_DATA)
-						{
-							pthread_mutex_lock(&p_dev->usb1352_queue_mutex);
-							usb1352_queue_insert(p_dev->usb1352_rx_queue, &rx_frame);
-							pthread_mutex_unlock(&p_dev->usb1352_queue_mutex);
-						}
+						pthread_mutex_lock(&p_dev->usb1352_queue_mutex);
+						usb1352_queue_insert(p_dev->usb1352_rx_queue, &rx_frame);
+						pthread_mutex_unlock(&p_dev->usb1352_queue_mutex);
 					}
 				}
-				usleep(1000);
 			}
+			usleep(1000);
 		}
 	}
 	p_dev->count += 1;
@@ -156,72 +120,6 @@ void usb1352_spi_data_receive(usb1352_dev* p_dev, uint8_t size, void* payload)
 		memset(payload, 0, size);
 	}
 }
-
-/*
-void* usb1352_spi_thread(void* dev)
-{
-	usb1352_dev* p_dev = (usb1352_dev*)dev;
-
-	sub1ghz_spi_frame tx_frame;
-	sub1ghz_spi_frame rx_frame;
-
-	while (1)
-	{
-		if (!(usb1352_queue_empty(p_dev->usb1352_tx_queue)))
-		{
-			memcpy(&tx_frame, &(p_dev->usb1352_tx_queue->buffer[p_dev->usb1352_tx_queue->front]), sizeof(sub1ghz_spi_frame));
-			if (!(usb1352_spi_rw(p_dev, &tx_frame, &rx_frame)))
-			{
-				continue;
-			}
-			usb1352_queue_remove(p_dev->usb1352_tx_queue);
-			p_dev->count += 1;
-
-			if (rx_frame.sync1 == SPI_SYNC_BYTE1 && rx_frame.sync2 == SPI_SYNC_BYTE2)
-			{
-				if (rx_frame.fc.frameType == SPI_INTERRUPT)
-				{
-					if (rx_frame.fc.cmdType == SPI_INTR_NORMAL)
-					{
-						if (rx_frame.fc.cmdSubType == SPI_INTR_NORMAL_DATA)
-						{
-							pthread_mutex_lock(&p_dev->usb1352_queue_mutex);
-							usb1352_queue_insert(p_dev->usb1352_rx_queue, &rx_frame);
-							pthread_cond_signal(&p_dev->usb1352_rx_cond);
-							pthread_mutex_unlock(&p_dev->usb1352_queue_mutex);
-						}
-					}
-				}
-			}
-			if (rx_frame.rfc.queue_size < 3)
-			{
-				while (rx_frame.rfc.queue_size < 3)
-				{
-					memset(&tx_frame, 0, sizeof(sub1ghz_spi_frame));
-					if (!(usb1352_spi_rw(p_dev, &tx_frame, &rx_frame)))
-					{
-						continue;
-					}
-
-					if (rx_frame.fc.frameType == SPI_INTERRUPT)
-					{
-						if (rx_frame.fc.cmdType == SPI_INTR_NORMAL)
-						{
-							if (rx_frame.fc.cmdSubType == SPI_INTR_NORMAL_DATA)
-							{
-								pthread_mutex_lock(&p_dev->usb1352_queue_mutex);
-								usb1352_queue_insert(p_dev->usb1352_rx_queue, &rx_frame);
-								pthread_mutex_unlock(&p_dev->usb1352_queue_mutex);
-							}
-						}
-					}
-					usleep(1000);
-				}
-			}
-		}
-	}
-}
-*/
 
 void* usb1352_spi_intr_thread(void* dev)
 {
@@ -265,17 +163,7 @@ void* usb1352_spi_intr_thread(void* dev)
 			dummy_data.fc.cmdType = SPI_NONE;
 			dummy_data.fc.cmdSubType = SPI_NONE;
 
-			while (1)
-			{
-				if (usb1352_spi_rw(p_dev, &dummy_data, &rx_frame) == TRUE)
-				{
-					break;
-				}
-				else
-				{
-					usleep(1000);
-				}
-			}
+			usb1352_spi_rw(p_dev, &dummy_data, &rx_frame);
 
 			if (rx_frame.sync1 == SPI_SYNC_BYTE1 && rx_frame.sync2 == SPI_SYNC_BYTE2)
 			{
@@ -292,8 +180,6 @@ void* usb1352_spi_intr_thread(void* dev)
 					}
 				}
 			}
-
-//			usb1352_queue_insert(p_dev->usb1352_tx_queue, &dummy_data);
 		}
 	}
 }

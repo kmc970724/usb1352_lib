@@ -55,7 +55,7 @@ void usb1352_queue_remove(usb1352_queue* queue);
 // SPI
 
 void usb1352_spi_init(usb1352_dev* p_dev);
-uint8_t usb1352_spi_rw(usb1352_dev* p_dev, sub1ghz_spi_frame* tx_frame, sub1ghz_spi_frame* rx_frame);
+void usb1352_spi_rw(usb1352_dev* p_dev, sub1ghz_spi_frame* tx_frame, sub1ghz_spi_frame* rx_frame);
 void usb1352_spi_data_transfer(usb1352_dev* p_dev, uint8_t size, void* payload);
 void usb1352_spi_data_receive(usb1352_dev* p_dev, uint8_t size, void* payload);
 
